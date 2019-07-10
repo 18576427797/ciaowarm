@@ -7,6 +7,7 @@ import rest.http_util as http
 import rest.message_package_util as message_package
 from mongodb.pymongo_util import Database
 from decimal import Decimal
+from pymongo import MongoClient, ASCENDING, DESCENDING
 
 # import random
 
@@ -49,6 +50,9 @@ def run():
                                                        trg_temp_obj['end_time'], trg_temp_obj['trg_temp'])
             for room_temp_obj in room_temp_obj_arr:
                 obj = {}
+                # 初始化内存对象
+                init_obj(db, table_name, room_temp_obj, obj)
+                # 检验燃烧状态
                 if check_burn_status(db, table_name, room_temp_obj, obj) == False:
                     continue
                 if room_temp_obj['room_temp_status'] == 1:
@@ -199,6 +203,82 @@ def get_constant_temp_time(db, table_name, start_time, end_time, trg_temp):
             break
 
     return room_temp_obj_arr
+
+
+# 初始化内存对象
+def init_obj(db, table_name, room_temp_obj, obj):
+    # 初始化内存对象
+    data = db.find_one(table_name,
+                       {"timestamp": {"$lt": room_temp_obj['start_time']}, "online": {"$exists": "true"}},
+                       {"timestamp": 1, "online": 1, "_id": 0})
+
+    if data is not None:
+        if "online" in data:
+            obj['online'] = data['online']
+        if "timestamp" in data:
+            obj['online_time'] = data['timestamp']
+
+    data = db.find_one(table_name, {"timestamp": {'$lt': room_temp_obj['start_time']}, "flag": {"$exists": "true"}})
+
+    if data is not None:
+        if 'thermostats' in data:
+            if len(data['thermostats']) != 0:
+                thermostat = data['thermostats'][0]
+                obj['thermostat_work_mode'] = thermostat['work_mode']
+                obj['thermostat_work_mode_time'] = data['timestamp']
+
+        if 'boilers' in data:
+            if len(data['boilers']) != 0:
+                boiler = data['boilers'][0]
+                if 'online' in boiler:
+                    obj['boiler_online'] = boiler['online']
+                    obj['boiler_online_time'] = data['timestamp']
+
+                if 'heating_ctrl' in boiler:
+                    obj['heating_ctrl'] = boiler['heating_ctrl']
+                    obj['heating_ctrl_time'] = data['timestamp']
+
+                if 'season_ctrl' in boiler:
+                    obj['season_ctrl'] = boiler['season_ctrl']
+                    obj['season_ctrl_time'] = data['timestamp']
+
+                if 'work_mode' in boiler:
+                    obj['boiler_work_mode'] = boiler['work_mode']
+                    obj['boiler_work_mode_time'] = data['timestamp']
+
+                if 'fault_code' in boiler:
+                    obj['fault_code'] = boiler['fault_code']
+                    obj['fault_code_time'] = data['timestamp']
+
+                if 'radiator_type' in boiler:
+                    obj['radiator_type'] = boiler['radiator_type']
+                    obj['radiator_type_time'] = data['timestamp']
+
+                if 'heating_trg_temp' in boiler:
+                    obj['heating_trg_temp'] = boiler['heating_trg_temp']
+                    obj['heating_trg_temp_time'] = data['timestamp']
+
+                if 'power_output_percent' in boiler:
+                    obj['power_output_percent'] = boiler['power_output_percent']
+                    obj['power_output_percent_time'] = data['timestamp']
+
+                if 'heating_water_temp' in boiler:
+                    obj['heating_water_temp'] = boiler['heating_water_temp']
+                    obj['heating_water_temp_time'] = data['timestamp']
+
+                if 'heating_return_water_temp' in boiler:
+                    obj['heating_return_water_temp'] = boiler['heating_return_water_temp']
+                    obj['heating_return_water_temp_time'] = data['timestamp']
+
+                if 'receiver' in boiler:
+                    receiver = boiler['receiver']
+                    if 'auto_ctrl' in receiver:
+                        obj['auto_ctrl'] = receiver['auto_ctrl']
+                        obj['auto_ctrl_time'] = data['timestamp']
+
+                    if 'online' in receiver:
+                        obj['receiver_online'] = receiver['online']
+                        obj['receiver_online_time'] = data['timestamp']
 
 
 # 校验某个时段内，壁挂炉是否处于正常燃烧状态

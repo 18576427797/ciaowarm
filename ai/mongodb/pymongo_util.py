@@ -49,9 +49,9 @@ class Database(object):
     def find_one(self, col, condition, column=None):
         if self.get_state():
             if column is None:
-                return self.db[col].find_one(condition)
+                return self.db[col].find_one(condition, sort=[('timestamp', -1)])
             else:
-                return self.db[col].find_one(condition, column)
+                return self.db[col].find_one(condition, column, sort=[('timestamp', -1)])
         else:
             return None
 
