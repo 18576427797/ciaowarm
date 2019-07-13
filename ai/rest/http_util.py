@@ -58,13 +58,13 @@ def get_sha1_token():
     return token
 
 
-str = "CIAOWARM%" + time.strftime("%Y%m%d") + "_LIUDUO"
-# 第一次加密
-b = hashlib.sha1()
-b.update(str.encode(encoding='utf-8'))
-c = b.hexdigest()
-# 第二次加密
-d = hashlib.sha1()
-d.update(c.encode(encoding='utf-8'))
-token = d.hexdigest()
+# str = "CIAOWARM%" + time.strftime("%Y%m%d") + "_LIUDUO"
+# # 第一次加密
+# b = hashlib.sha1()
+# b.update(str.encode(encoding='utf-8'))
+# c = b.hexdigest()
+# # 第二次加密
+# d = hashlib.sha1()
+# d.update(c.encode(encoding='utf-8'))
+# token = d.hexdigest()
 # print(token)
