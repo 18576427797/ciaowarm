@@ -180,19 +180,16 @@ def get_trg_temp_time(db, table_name, yesterday_start, yesterday_end):
 def get_constant_temp_time(db, table_name, start_time, end_time, trg_temp):
     query_start_time = start_time
     query_end_time = start_time + ROOM_TEMP_CONSTANT_TIME
-    room_temp_obj = {}
-    room_temp_obj_arr = []
+    room_temp_return_obj = {}
+    room_temp_return_obj_arr = []
 
     while (True):
         online_status = {}
-        room_temp = []
+        room_temp_obj = {}
+        room_temp_obj_arr = []
 
         # 判断网关是否是在线状态
         data = get_front_data(db, table_name, query_start_time, "online")
-        # data = db.find_one(table_name,
-        #                    {"timestamp": {"$lte": query_start_time}, "online": {"$exists": "true"}},
-        #                    {"timestamp": 1, "online": 1, "_id": 0})
-
         # 查询网关在线状态query_start_time之前的第一个点
         if data is not None:
             if "online" in data:
@@ -230,6 +227,17 @@ def get_constant_temp_time(db, table_name, start_time, end_time, trg_temp):
                     online_status['online'] = item['online']
                     online_status['online_time'] = item['timestamp']
 
+        # 查询室温数据
+        front_room_temp = 0
+        data = get_front_data(db, table_name, query_start_time, "thermostats.room_temp")
+        # 查询query_start_time之前的第一个室温点
+        if data is not None:
+            if 'thermostats' in data:
+                thermostat = data['thermostats'][0]
+                # 房间温度
+                if 'room_temp' in thermostat:
+                    front_room_temp = thermostat['room_temp']
+        # 查询query_start_time到query_end_time之间的室温数据
         data = db.find(table_name,
                        {"$and": [{"timestamp": {'$gte': query_start_time, '$lt': query_end_time}},
                                  {"thermostats.room_temp": {"$exists": "true"}}]},
@@ -239,7 +247,12 @@ def get_constant_temp_time(db, table_name, start_time, end_time, trg_temp):
                 thermostat = item['thermostats'][0]
                 # 房间温度
                 if 'room_temp' in thermostat:
-                    room_temp.append(thermostat['room_temp'])
+                    room_temp_obj['room_temp'] = thermostat['room_temp']
+                    room_temp_obj['timestamp'] = item['timestamp']
+                    room_temp_obj_arr.append(room_temp_obj)
+                    room_temp_obj = {}
+
+        get_room_temp_discrete_value(query_start_time, query_end_time, front_room_temp, room_temp_obj_arr)
 
         # # 求室温数组的平均值、方差、标准差
         # if online_status['online'] is True and len(room_temp) > 0:
@@ -259,33 +272,33 @@ def get_constant_temp_time(db, table_name, start_time, end_time, trg_temp):
         #     # 标准差小于2.5，我们就认为达到了恒温状态
         #     if room_temp_std < ROOM_TEMP_STANDARD_DEVIATION:
         #         # 平均值在目标温度波动范围0.6度以外，则认为没有达到目标温度
-        #         room_temp_obj['start_time'] = query_start_time
-        #         room_temp_obj['end_time'] = query_end_time
+        #         room_temp_return_obj['start_time'] = query_start_time
+        #         room_temp_return_obj['end_time'] = query_end_time
         #         if (trg_temp * 10) > (room_temp_mean + ROOM_TEMP_AVG_RANGE):
         #             print(table_name + "从" + timestamp_to_date(query_start_time) + "到" + timestamp_to_date(
         #                 query_end_time) + "的目标温度为：%f" % trg_temp + "，平均值为：%f" % room_temp_mean +
         #                   ", 方差为：%f" % room_temp_var + "，标准差为:%f" % room_temp_std + ", 室温没有达到目标温度，需调大CHR")
-        #             room_temp_obj['room_temp_status'] = 1
+        #             room_temp_return_obj['room_temp_status'] = 1
         #         elif (room_temp_mean - ROOM_TEMP_AVG_RANGE) > (trg_temp * 10):
         #             print(table_name + "从" + timestamp_to_date(query_start_time) + "到" + timestamp_to_date(
         #                 query_end_time) + "的目标温度为：%f" % trg_temp + "，平均值为：%f" % room_temp_mean +
         #                   ", 方差为：%f" % room_temp_var + "，标准差为:%f" % room_temp_std + ", 烧超温，需调小CHR")
-        #             room_temp_obj['room_temp_status'] = 2
+        #             room_temp_return_obj['room_temp_status'] = 2
         #         else:
         #             if room_temp_std > ROOM_TEMP_STANDARD_OPTIMUM:
         #                 print(table_name + "从" + timestamp_to_date(query_start_time) + "到" + timestamp_to_date(
         #                     query_end_time) + "的目标温度为：%f" % trg_temp + "，平均值为：%f" % room_temp_mean +
         #                       ", 方差为：%f" % room_temp_var + "，标准差为:%f" % room_temp_std + "，需调小CHR")
-        #                 room_temp_obj['room_temp_status'] = 2
+        #                 room_temp_return_obj['room_temp_status'] = 2
         #             else:
         #                 print(table_name + "从" + timestamp_to_date(query_start_time) + "到" + timestamp_to_date(
         #                     query_end_time) + "的目标温度为：%f" % trg_temp + "，平均值为：%f" % room_temp_mean +
         #                       ", 方差为：%f" % room_temp_var + "，标准差为:%f" % room_temp_std)
-        #                 room_temp_obj['room_temp_status'] = 0
+        #                 room_temp_return_obj['room_temp_status'] = 0
         #         # 将字典数据放入到字段数组中
-        #         room_temp_obj_arr.append(room_temp_obj)
+        #         room_temp_return_obj_arr.append(room_temp_return_obj)
         #         # 必须重新创建字典，不然会覆盖数组里面的字典
-        #         room_temp_obj = {}
+        #         room_temp_return_obj = {}
 
         query_start_time = query_start_time + ROOM_TEMP_STEP_TIME
         query_end_time = query_end_time + ROOM_TEMP_STEP_TIME
@@ -293,11 +306,36 @@ def get_constant_temp_time(db, table_name, start_time, end_time, trg_temp):
         if query_end_time > end_time:
             break
 
-    return room_temp_obj_arr
+    return room_temp_return_obj_arr
 
 
 # 计算室温离散值
-# def get_room_temp_discrete_value(room_temp):
+def get_room_temp_discrete_value(query_start_time, query_end_time, front_room_temp, room_temp_obj_arr):
+    start_time = query_start_time
+    end_time = query_start_time + 120000
+    room_temp = []
+    room_temp_mean = []
+    for room_temp_obj in room_temp_obj_arr:
+        while (True):
+            if start_time <= room_temp_obj['timestamp'] <= end_time:
+                room_temp.append(room_temp_obj['room_temp'])
+                break
+            else:
+                if len(room_temp) > 0:
+                    room_temp_mean.append(np.mean(room_temp))
+                else:
+                    room_temp_mean.append(front_room_temp)
+                room_temp = []
+                start_time = end_time
+                end_time = end_time + 120000
+
+                if end_time > query_end_time:
+                    break
+
+        # 前一个室温点值
+        front_room_temp = room_temp_obj['room_temp']
+
+    print(str(len(room_temp_mean)) + "------>" + str(room_temp_mean))
 
 
 # 查询start_time时间点的前一个数据点
@@ -574,6 +612,6 @@ obj = {}
 room_temp_obj = {}
 room_temp_obj['start_time'] = 1562753453485
 room_temp_obj['end_time'] = 1562774400000
-get_constant_temp_time(db, "g1060", 1562860800000, 1562947199000, 24)
+get_constant_temp_time(db, "g1060", 1562918400000, 1562929200000, 24)
 # init_obj(db, 'g1066', room_temp_obj, obj)
 # print(obj)
