@@ -323,8 +323,12 @@ def get_room_temp_discrete_value(query_start_time, query_end_time, front_room_te
             else:
                 if len(room_temp) > 0:
                     room_temp_mean.append(np.mean(room_temp))
+                    print(timestamp_to_date(start_time) + "到" + timestamp_to_date(end_time) + "的平均值：%f" % np.mean(
+                        room_temp))
                 else:
                     room_temp_mean.append(front_room_temp)
+                    print(
+                        timestamp_to_date(start_time) + "到" + timestamp_to_date(end_time) + "的平均值：%f" % front_room_temp)
                 room_temp = []
                 start_time = end_time
                 end_time = end_time + 120000
@@ -334,6 +338,7 @@ def get_room_temp_discrete_value(query_start_time, query_end_time, front_room_te
 
         # 前一个室温点值
         front_room_temp = room_temp_obj['room_temp']
+        print(timestamp_to_date(room_temp_obj['timestamp']) + "------>" + str(room_temp_obj['room_temp']))
 
     print(str(len(room_temp_mean)) + "------>" + str(room_temp_mean))
 
