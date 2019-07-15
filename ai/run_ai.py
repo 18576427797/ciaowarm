@@ -23,10 +23,12 @@ TRG_TEMP_NOT_CHANGE_TIME = 5
 ROOM_TEMP_CONSTANT_TIME = 10800000
 # 遍历室内温度，暂定步进时长1小时，即3600000毫秒
 ROOM_TEMP_STEP_TIME = 3600000
-# 室内温度标准差，暂定小于2.5具有分析价值
-ROOM_TEMP_STANDARD_DEVIATION = 2.5
-# 室内温度标准差，暂定小于1.5恒温效果最佳
-ROOM_TEMP_STANDARD_OPTIMUM = 1.5
+# 统计室温离散性时，将室温时长区间切分成2分钟进行分析
+ROOM_TEMP_SEGMENT_TIME = 120000
+# 室内温度标准差，暂定小于9具有分析价值
+ROOM_TEMP_STANDARD_DEVIATION = 9
+# 室内温度标准差，暂定小于6.5恒温效果最佳
+ROOM_TEMP_STANDARD_OPTIMUM = 6.5
 # 室内温度平均数波动范围，暂定0.6度以内，不包含0.6度
 ROOM_TEMP_AVG_RANGE = 6
 # CHR调节幅度，暂定0.1
@@ -69,68 +71,47 @@ def device_analysis(db, device, yesterday_start, yesterday_end):
     # 获取目标温度5小时恒定数组
     trg_temp_obj_arr = get_trg_temp_time(db, table_name, yesterday_start, yesterday_end)
     # 遍历目标温度5小时恒定数组
+    one_day_room_temp_obj_arr = []
     for trg_temp_obj in trg_temp_obj_arr:
         # 获取恒温时段数组
         room_temp_obj_arr = get_constant_temp_time(db, table_name, trg_temp_obj['start_time'],
                                                    trg_temp_obj['end_time'], trg_temp_obj['trg_temp'])
         # 遍历恒温时段数组
         for room_temp_obj in room_temp_obj_arr:
-            obj = {}
-            # 初始化内存对象
-            init_obj(db, table_name, room_temp_obj, obj)
-            # 检验燃烧状态
-            flag, heating_return_water_temp_arr = check_burn_status(db, table_name, room_temp_obj, obj)
-            if flag is False:
-                continue
-            if room_temp_obj['room_temp_status'] == 1:
-                # 如果采暖回水温度已达到上限就没有调大CHR的必要，radiator_type(1:地暖, 2:暖气片)
-                # 地暖升温阶段上限为60度，地暖恒温阶段上限为50度
-                # 暖气片升温阶段上限为80度，暖气片恒温阶段上限为70度
-                if len(heating_return_water_temp_arr) > 0:
-                    heating_return_water_temp_mean = np.mean(heating_return_water_temp_arr)
-                    if obj['radiator_type'] == 1 and heating_return_water_temp_mean > 49:
-                        print(table_name + "设备采暖回水温度已达到上限，采用地暖类型，采暖回水温度平均值为：" +
-                              str(heating_return_water_temp_mean) + "，采暖回水温度数量为：" + str(
-                            len(heating_return_water_temp_arr)))
-                        continue
-                    elif obj['radiator_type'] == 2 and heating_return_water_temp_mean > 69:
-                        print(table_name + "设备采暖回水温度已达到上限，采用暖气片类型，采暖回水温度平均值为：" +
-                              str(heating_return_water_temp_mean) + "，采暖回水温度数量为：" + str(
-                            len(heating_return_water_temp_arr)))
-                        continue
+            one_day_room_temp_obj_arr.append(room_temp_obj)
 
-            gateway = http.get_device_memory_info(device_id)
-            gateway_id = gateway['gateway_id']
-            thermostat = gateway['thermostats'][0]
-            thermostat_id = thermostat['thermostat_id']
-            chr = thermostat['chr']
-            # 需调大CHR
-            if room_temp_obj['room_temp_status'] == 1:
-                # python里面计算浮点类型存在精确性
-                chr = Decimal(str(chr)) + Decimal(str(CHR_ADJUST_RANGE))
-                chr = float(chr)
-                message = message_package.get_thermostat_message_package(gateway_id, thermostat_id, 'chr', chr)
-                print(message)
-                # result = http.send_mqtt(message)
-                # if result['message_code'] == 0:
-                #     print("需要加大CHR, MQTT发送成功")
-                return
-            # 需调小CHR
-            elif room_temp_obj['room_temp_status'] == 2:
-                # python里面计算浮点类型存在精确性
-                chr = Decimal(str(chr)) - Decimal(str(CHR_ADJUST_RANGE))
-                chr = float(chr)
-                message = message_package.get_thermostat_message_package(gateway_id, thermostat_id, 'chr', chr)
-                print(message)
-                # result = http.send_mqtt(message)
-                # if result['message_code'] == 0:
-                #     print("需要减小CHR, MQTT发送成功")
-                return
-            # 无需调整CHR，计算实际升温时长
-            elif room_temp_obj['room_temp_status'] == 0:
-                message = message_package.get_thermostat_message_package(gateway_id, thermostat_id, 'chr', chr)
-                print(message)
-                return
+    # 对恒温时段按标准值从小到大排序
+    one_day_room_temp_obj_arr.sort(key=lambda x: x["room_temp_std"])
+    for room_temp_obj in one_day_room_temp_obj_arr:
+        obj = {}
+        # 初始化内存对象
+        init_obj(db, table_name, room_temp_obj, obj)
+        # 检验是否满足燃烧条件
+        flag, heating_return_water_temp_arr = check_burn_status(db, table_name, room_temp_obj, obj)
+        if flag is False:
+            continue
+        # 分析燃烧状况
+        burn_status = 0
+        if (room_temp_obj['trg_temp'] * 10) > (room_temp_obj['room_temp_mean'] + ROOM_TEMP_AVG_RANGE):
+            print(table_name + "从" + timestamp_to_date(room_temp_obj['start_time']) + "到" + timestamp_to_date(
+                room_temp_obj['end_time']) + "的目标温度为：%f" % room_temp_obj['trg_temp'] + "，平均值为：%f" % room_temp_obj[
+                      'room_temp_mean'] + "，标准差为:%f" % room_temp_obj['room_temp_std'] + ", 室温没有达到目标温度，需调大CHR")
+            burn_status = 1
+        elif (room_temp_obj['room_temp_mean'] - ROOM_TEMP_AVG_RANGE) > (room_temp_obj['trg_temp'] * 10):
+            print(table_name + "从" + timestamp_to_date(room_temp_obj['start_time']) + "到" + timestamp_to_date(
+                room_temp_obj['end_time']) + "的目标温度为：%f" % room_temp_obj['trg_temp'] + "，平均值为：%f" % room_temp_obj[
+                      'room_temp_mean'] + "，标准差为:%f" % room_temp_obj['room_temp_std'] + ", 烧超温，需调小CHR")
+            burn_status = 2
+        else:
+            if room_temp_obj['room_temp_std'] > ROOM_TEMP_STANDARD_OPTIMUM:
+                print(table_name + "从" + timestamp_to_date(room_temp_obj['start_time']) + "到" + timestamp_to_date(
+                    room_temp_obj['end_time']) + "的目标温度为：%f" % room_temp_obj['trg_temp'] + "，平均值为：%f" % room_temp_obj[
+                          'room_temp_mean'] + "，标准差为:%f" % room_temp_obj['room_temp_std'] + "，需调小CHR")
+                burn_status = 3
+
+        # 向小沃精灵发送chr值
+        send_chr_to_ciaowarm(device_id, burn_status, obj, heating_return_water_temp_arr)
+        return
 
 
 # 查询前一天满足目标温度5个小时内不变动的时间段
@@ -184,59 +165,23 @@ def get_constant_temp_time(db, table_name, start_time, end_time, trg_temp):
     room_temp_return_obj_arr = []
 
     while (True):
-        online_status = {}
         room_temp_obj = {}
         room_temp_obj_arr = []
-
         # 判断网关是否是在线状态
-        data = get_front_data(db, table_name, query_start_time, "online")
-        # 查询网关在线状态query_start_time之前的第一个点
-        if data is not None:
-            if "online" in data:
-                online_status['online'] = data['online']
-                online_status['online_time'] = query_start_time
-        # 查询网关在线状态query_start_time到query_end_time之间的数据
-        data = db.find(table_name,
-                       {"$and": [{"timestamp": {'$gt': query_start_time, '$lte': query_end_time}},
-                                 {"online": {"$exists": "true"}}]},
-                       {"timestamp": 1, "online": 1, "_id": 0})
-        # 先判断网关在线状态是否符合要求(离线时长不能超过3分钟)
-        for item in data:
-            if 'online' in item:
-                # obj存放前一个点数据，item存放后一个点数据
-                if 'online' in online_status:
-                    if online_status['online'] is not True:
-                        # 前一个点为False时，进行比较
-                        if (item['timestamp'] - online_status['online_time']) > ABNORMAL_BURN_STATUS_TIME:
-                            print(table_name + "设备从" + timestamp_to_date(
-                                query_start_time) + "到" + timestamp_to_date(
-                                query_end_time) + "网关离线时长超过3分钟")
-                            query_start_time = query_start_time + ROOM_TEMP_STEP_TIME
-                            query_end_time = query_end_time + ROOM_TEMP_STEP_TIME
-                            continue
-                        # 后一个点为True时，直接赋值
-                        if item['online'] is True:
-                            online_status['online'] = item['online']
-                            online_status['online_time'] = item['timestamp']
-                    else:
-                        # 前一个点为True时，后一个点直接赋值给前一个点
-                        online_status['online'] = item['online']
-                        online_status['online_time'] = item['timestamp']
-                else:
-                    # 存放第一个点数据
-                    online_status['online'] = item['online']
-                    online_status['online_time'] = item['timestamp']
-
+        online_status = device_online_status(db, table_name, query_start_time, query_end_time)
+        if online_status is False:
+            query_start_time = query_start_time + ROOM_TEMP_STEP_TIME
+            query_end_time = query_end_time + ROOM_TEMP_STEP_TIME
+            continue
         # 查询室温数据
         front_room_temp = 0
-        data = get_front_data(db, table_name, query_start_time, "thermostats.room_temp")
         # 查询query_start_time之前的第一个室温点
+        data = get_front_data(db, table_name, query_start_time, "thermostats.room_temp")
         if data is not None:
             if 'thermostats' in data:
                 thermostat = data['thermostats'][0]
                 # 房间温度
-                if 'room_temp' in thermostat:
-                    front_room_temp = thermostat['room_temp']
+                front_room_temp = thermostat['room_temp']
         # 查询query_start_time到query_end_time之间的室温数据
         data = db.find(table_name,
                        {"$and": [{"timestamp": {'$gte': query_start_time, '$lt': query_end_time}},
@@ -246,59 +191,32 @@ def get_constant_temp_time(db, table_name, start_time, end_time, trg_temp):
             if 'thermostats' in item:
                 thermostat = item['thermostats'][0]
                 # 房间温度
-                if 'room_temp' in thermostat:
-                    room_temp_obj['room_temp'] = thermostat['room_temp']
-                    room_temp_obj['timestamp'] = item['timestamp']
-                    room_temp_obj_arr.append(room_temp_obj)
-                    room_temp_obj = {}
+                room_temp_obj['room_temp'] = thermostat['room_temp']
+                room_temp_obj['timestamp'] = item['timestamp']
+                room_temp_obj_arr.append(room_temp_obj)
+                room_temp_obj = {}
 
-        get_room_temp_discrete_value(query_start_time, query_end_time, front_room_temp, room_temp_obj_arr)
-
-        # # 求室温数组的平均值、方差、标准差
-        # if online_status['online'] is True and len(room_temp) > 0:
-        #     # 平均值
-        #     room_temp_mean = np.mean(room_temp)
-        #     # 方差，方差是每个样本值与全体样本值的平均数之差的平方值的平均数。方差=((x1-x)^2 +(x2-x)^2 +......(xn-x)^2)/n
-        #     room_temp_var = np.var(room_temp)
-        #     # 标准差，标准差是方差的算术平方根，标准差能反应一个数据集的离散程度。标准差=sqrt(((x1-x)^2 +(x2-x)^2 +......(xn-x)^2)/n)
-        #     # room_temp_std = np.std(room_temp, ddof=0)
-        #     room_temp_std = 0
-        #     for item in room_temp:
-        #         room_temp_std = room_temp_std + (abs(item - room_temp_mean))
-        #     room_temp_std = room_temp_std / len(room_temp)
-        #     print(table_name + "从" + timestamp_to_date(query_start_time) + "到" + timestamp_to_date(
-        #         query_end_time) + "的目标温度为：%f" % trg_temp + "，平均值为：%f" % room_temp_mean +
-        #           ", 方差为：%f" % room_temp_var + "，离散差为:%f" % room_temp_std)
-        #     # 标准差小于2.5，我们就认为达到了恒温状态
-        #     if room_temp_std < ROOM_TEMP_STANDARD_DEVIATION:
-        #         # 平均值在目标温度波动范围0.6度以外，则认为没有达到目标温度
-        #         room_temp_return_obj['start_time'] = query_start_time
-        #         room_temp_return_obj['end_time'] = query_end_time
-        #         if (trg_temp * 10) > (room_temp_mean + ROOM_TEMP_AVG_RANGE):
-        #             print(table_name + "从" + timestamp_to_date(query_start_time) + "到" + timestamp_to_date(
-        #                 query_end_time) + "的目标温度为：%f" % trg_temp + "，平均值为：%f" % room_temp_mean +
-        #                   ", 方差为：%f" % room_temp_var + "，标准差为:%f" % room_temp_std + ", 室温没有达到目标温度，需调大CHR")
-        #             room_temp_return_obj['room_temp_status'] = 1
-        #         elif (room_temp_mean - ROOM_TEMP_AVG_RANGE) > (trg_temp * 10):
-        #             print(table_name + "从" + timestamp_to_date(query_start_time) + "到" + timestamp_to_date(
-        #                 query_end_time) + "的目标温度为：%f" % trg_temp + "，平均值为：%f" % room_temp_mean +
-        #                   ", 方差为：%f" % room_temp_var + "，标准差为:%f" % room_temp_std + ", 烧超温，需调小CHR")
-        #             room_temp_return_obj['room_temp_status'] = 2
-        #         else:
-        #             if room_temp_std > ROOM_TEMP_STANDARD_OPTIMUM:
-        #                 print(table_name + "从" + timestamp_to_date(query_start_time) + "到" + timestamp_to_date(
-        #                     query_end_time) + "的目标温度为：%f" % trg_temp + "，平均值为：%f" % room_temp_mean +
-        #                       ", 方差为：%f" % room_temp_var + "，标准差为:%f" % room_temp_std + "，需调小CHR")
-        #                 room_temp_return_obj['room_temp_status'] = 2
-        #             else:
-        #                 print(table_name + "从" + timestamp_to_date(query_start_time) + "到" + timestamp_to_date(
-        #                     query_end_time) + "的目标温度为：%f" % trg_temp + "，平均值为：%f" % room_temp_mean +
-        #                       ", 方差为：%f" % room_temp_var + "，标准差为:%f" % room_temp_std)
-        #                 room_temp_return_obj['room_temp_status'] = 0
-        #         # 将字典数据放入到字段数组中
-        #         room_temp_return_obj_arr.append(room_temp_return_obj)
-        #         # 必须重新创建字典，不然会覆盖数组里面的字典
-        #         room_temp_return_obj = {}
+        if len(room_temp_obj_arr) > 18:
+            # 获取该时间段统计数据离散性的数组
+            room_temp_arr = get_room_temp_discrete_value(query_start_time, query_end_time, front_room_temp,
+                                                         room_temp_obj_arr)
+            # 室温数组的平均值
+            room_temp_mean = np.mean(room_temp_arr)
+            # 室温数组的标准差，标准差是方差的算术平方根，标准差能反应一个数据集的离散程度。
+            # 标准差=sqrt(((x1-x)^2 +(x2-x)^2 +......(xn-x)^2)/n)
+            room_temp_std = np.std(room_temp_arr, ddof=0)
+            # 标准差小于9，我们就认为该时段有分析价值
+            if room_temp_std < ROOM_TEMP_STANDARD_DEVIATION:
+                # 平均值在目标温度波动范围0.6度以外，则认为没有达到目标温度
+                room_temp_return_obj['start_time'] = query_start_time
+                room_temp_return_obj['end_time'] = query_end_time
+                room_temp_return_obj['room_temp_mean'] = room_temp_mean
+                room_temp_return_obj['room_temp_std'] = room_temp_std
+                room_temp_return_obj['trg_temp'] = trg_temp
+                # 将离散数据放入数组中
+                room_temp_return_obj_arr.append(room_temp_return_obj)
+                # 必须重新创建字典，不然会覆盖数组里面之前的字典
+                room_temp_return_obj = {}
 
         query_start_time = query_start_time + ROOM_TEMP_STEP_TIME
         query_end_time = query_end_time + ROOM_TEMP_STEP_TIME
@@ -309,11 +227,56 @@ def get_constant_temp_time(db, table_name, start_time, end_time, trg_temp):
     return room_temp_return_obj_arr
 
 
+# 判断设备在线状态是否正常
+def device_online_status(db, table_name, query_start_time, query_end_time):
+    # 判断网关是否是在线状态
+    online_status = {}
+    data = get_front_data(db, table_name, query_start_time, "online")
+    # 查询网关在线状态query_start_time之前的第一个点
+    if data is not None:
+        if "online" in data:
+            online_status['online'] = data['online']
+            online_status['online_time'] = query_start_time
+    # 查询网关在线状态query_start_time到query_end_time之间的数据
+    data = db.find(table_name,
+                   {"$and": [{"timestamp": {'$gt': query_start_time, '$lte': query_end_time}},
+                             {"online": {"$exists": "true"}}]},
+                   {"timestamp": 1, "online": 1, "_id": 0})
+    # 先判断网关在线状态是否符合要求(离线时长不能超过3分钟)
+    for item in data:
+        if 'online' in item:
+            # obj存放前一个点数据，item存放后一个点数据
+            if 'online' in online_status:
+                if online_status['online'] is not True:
+                    # 前一个点为False时，进行比较
+                    if (item['timestamp'] - online_status['online_time']) > ABNORMAL_BURN_STATUS_TIME:
+                        print(table_name + "设备从" + timestamp_to_date(
+                            query_start_time) + "到" + timestamp_to_date(
+                            query_end_time) + "网关离线时长超过3分钟")
+                        return False
+                    # 后一个点为True时，直接赋值
+                    if item['online'] is True:
+                        online_status['online'] = item['online']
+                        online_status['online_time'] = item['timestamp']
+                else:
+                    # 前一个点为True时，后一个点直接赋值给前一个点
+                    online_status['online'] = item['online']
+                    online_status['online_time'] = item['timestamp']
+            else:
+                # 存放第一个点数据
+                online_status['online'] = item['online']
+                online_status['online_time'] = item['timestamp']
+
+    return True
+
+
 # 计算室温离散值
 def get_room_temp_discrete_value(query_start_time, query_end_time, front_room_temp, room_temp_obj_arr):
     start_time = query_start_time
-    end_time = query_start_time + 120000
+    end_time = query_start_time + ROOM_TEMP_SEGMENT_TIME
+    # 存放两分钟室温值
     room_temp = []
+    # 存放两分钟室温的平均值
     room_temp_mean = []
     for room_temp_obj in room_temp_obj_arr:
         while (True):
@@ -323,24 +286,32 @@ def get_room_temp_discrete_value(query_start_time, query_end_time, front_room_te
             else:
                 if len(room_temp) > 0:
                     room_temp_mean.append(np.mean(room_temp))
-                    print(timestamp_to_date(start_time) + "到" + timestamp_to_date(end_time) + "的平均值：%f" % np.mean(
-                        room_temp))
                 else:
                     room_temp_mean.append(front_room_temp)
-                    print(
-                        timestamp_to_date(start_time) + "到" + timestamp_to_date(end_time) + "的平均值：%f" % front_room_temp)
+
                 room_temp = []
                 start_time = end_time
-                end_time = end_time + 120000
+                end_time = end_time + ROOM_TEMP_SEGMENT_TIME
 
                 if end_time > query_end_time:
                     break
 
         # 前一个室温点值
         front_room_temp = room_temp_obj['room_temp']
-        print(timestamp_to_date(room_temp_obj['timestamp']) + "------>" + str(room_temp_obj['room_temp']))
 
-    print(str(len(room_temp_mean)) + "------>" + str(room_temp_mean))
+    while (True):
+        if end_time > query_end_time:
+            break
+
+        if len(room_temp) > 0:
+            room_temp_mean.append(np.mean(room_temp))
+        else:
+            room_temp_mean.append(front_room_temp)
+
+        room_temp = []
+        end_time = end_time + ROOM_TEMP_SEGMENT_TIME
+
+    return room_temp_mean
 
 
 # 查询start_time时间点的前一个数据点
@@ -611,12 +582,67 @@ def check_burn_status(db, table_name, room_temp_obj, obj):
     return flag, heating_return_water_temp_arr
 
 
-# run()
-db = Database(MONGODB_IP, MONGODB_PORT, MONGODB_DB, MONGODB_USERNAME, MONGODB_PASSWORD)
-obj = {}
-room_temp_obj = {}
-room_temp_obj['start_time'] = 1562753453485
-room_temp_obj['end_time'] = 1562774400000
-get_constant_temp_time(db, "g1060", 1562918400000, 1562929200000, 24)
+# 向小沃精灵发送chr值
+def send_chr_to_ciaowarm(device_id, burn_status, obj, heating_return_water_temp_arr):
+    # 判断壁挂炉是否是最大功率在燃烧，如果采暖回水温度已达到上限就没有调大CHR的必要
+    if burn_status == 1 or burn_status == 3:
+        # radiator_type(1:地暖, 2:暖气片)
+        # 地暖升温阶段上限为60度，地暖恒温阶段上限为50度
+        # 暖气片升温阶段上限为80度，暖气片恒温阶段上限为70度
+        if len(heating_return_water_temp_arr) > 0:
+            heating_return_water_temp_mean = np.mean(heating_return_water_temp_arr)
+            if obj['radiator_type'] == 1 and heating_return_water_temp_mean > 49:
+                print(str(device_id) + "设备采暖回水温度已达到上限，采用地暖类型，采暖回水温度平均值为：" +
+                      str(heating_return_water_temp_mean) + "，采暖回水温度数量为：" + str(
+                    len(heating_return_water_temp_arr)))
+                return
+            elif obj['radiator_type'] == 2 and heating_return_water_temp_mean > 69:
+                print(str(device_id) + "设备采暖回水温度已达到上限，采用暖气片类型，采暖回水温度平均值为：" +
+                      str(heating_return_water_temp_mean) + "，采暖回水温度数量为：" + str(
+                    len(heating_return_water_temp_arr)))
+                return
+
+    gateway = http.get_device_memory_info(device_id)
+    gateway_id = gateway['gateway_id']
+    thermostat = gateway['thermostats'][0]
+    thermostat_id = thermostat['thermostat_id']
+    chr = thermostat['chr']
+    # 需调大CHR
+    if burn_status == 1:
+        # python里面计算浮点类型存在精确性
+        chr = Decimal(str(chr)) + Decimal(str(CHR_ADJUST_RANGE))
+        chr = float(chr)
+        message = message_package.get_thermostat_message_package(gateway_id, thermostat_id, 'chr', chr)
+        print(message)
+        # result = http.send_mqtt(message)
+        # if result['message_code'] == 0:
+        #     print("需要加大CHR, MQTT发送成功")
+    # 需调小CHR
+    elif burn_status == 2:
+        # python里面计算浮点类型存在精确性
+        chr = Decimal(str(chr)) - Decimal(str(CHR_ADJUST_RANGE))
+        chr = float(chr)
+        message = message_package.get_thermostat_message_package(gateway_id, thermostat_id, 'chr', chr)
+        print(message)
+        # result = http.send_mqtt(message)
+        # if result['message_code'] == 0:
+        #     print("需要减小CHR, MQTT发送成功")
+    # 无需调整CHR，计算实际升温时长
+    elif burn_status == 0:
+        message = message_package.get_thermostat_message_package(gateway_id, thermostat_id, 'chr', chr)
+        print(message)
+        # result = http.send_mqtt(message)
+        # if result['message_code'] == 0:
+        #     print("燃烧工况良好，无需修改CHR, MQTT发送成功")
+
+
+run()
+# db = Database(MONGODB_IP, MONGODB_PORT, MONGODB_DB, MONGODB_USERNAME, MONGODB_PASSWORD)
+# obj = {}
+# room_temp_obj = {}
+# room_temp_obj['start_time'] = 1562753453485
+# room_temp_obj['end_time'] = 1562774400000
+# get_constant_temp_time(db, "g1060", 1562918400000, 1562929200000, 24)
+# get_constant_temp_time(db, "g1060", 1562860800000, 1562947199000, 24)
 # init_obj(db, 'g1066', room_temp_obj, obj)
 # print(obj)
