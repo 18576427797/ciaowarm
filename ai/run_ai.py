@@ -110,7 +110,9 @@ def device_analysis(db, device, yesterday_start, yesterday_end):
                 burn_status = 3
 
         # 向小沃精灵发送chr值
-        send_chr_to_ciaowarm(device_id, burn_status, obj, heating_return_water_temp_arr)
+        if send_chr_to_ciaowarm(device_id, burn_status, obj, heating_return_water_temp_arr) is True:
+            # 计算升温时长
+            get_heating_up_time(db, table_name, room_temp_obj)
         return
 
 
@@ -213,6 +215,8 @@ def get_constant_temp_time(db, table_name, start_time, end_time, trg_temp):
                 room_temp_return_obj['room_temp_mean'] = room_temp_mean
                 room_temp_return_obj['room_temp_std'] = room_temp_std
                 room_temp_return_obj['trg_temp'] = trg_temp
+                # 计算升温时长的起始时间
+                room_temp_return_obj['heating_up_start_time'] = start_time
                 # 将离散数据放入数组中
                 room_temp_return_obj_arr.append(room_temp_return_obj)
                 # 必须重新创建字典，不然会覆盖数组里面之前的字典
@@ -319,6 +323,14 @@ def get_front_data(db, table_name, start_time, para):
     data = db.find_one(table_name,
                        {"timestamp": {"$lte": start_time}, para: {"$exists": "true"}},
                        {"timestamp": 1, para: 1, "_id": 0}, sort=-1)
+    return data
+
+
+# 查询start_time时间点的后一个数据点
+def get_next_data(db, table_name, start_time, para):
+    data = db.find_one(table_name,
+                       {"timestamp": {"$gte": start_time}, para: {"$exists": "true"}},
+                       {"timestamp": 1, para: 1, "_id": 0})
     return data
 
 
@@ -585,7 +597,7 @@ def check_burn_status(db, table_name, room_temp_obj, obj):
 # 向小沃精灵发送chr值
 def send_chr_to_ciaowarm(device_id, burn_status, obj, heating_return_water_temp_arr):
     # 判断壁挂炉是否是最大功率在燃烧，如果采暖回水温度已达到上限就没有调大CHR的必要
-    if burn_status == 1 or burn_status == 3:
+    if burn_status == 1:
         # radiator_type(1:地暖, 2:暖气片)
         # 地暖升温阶段上限为60度，地暖恒温阶段上限为50度
         # 暖气片升温阶段上限为80度，暖气片恒温阶段上限为70度
@@ -595,12 +607,12 @@ def send_chr_to_ciaowarm(device_id, burn_status, obj, heating_return_water_temp_
                 print(str(device_id) + "设备采暖回水温度已达到上限，采用地暖类型，采暖回水温度平均值为：" +
                       str(heating_return_water_temp_mean) + "，采暖回水温度数量为：" + str(
                     len(heating_return_water_temp_arr)))
-                return
+                return False
             elif obj['radiator_type'] == 2 and heating_return_water_temp_mean > 69:
                 print(str(device_id) + "设备采暖回水温度已达到上限，采用暖气片类型，采暖回水温度平均值为：" +
                       str(heating_return_water_temp_mean) + "，采暖回水温度数量为：" + str(
                     len(heating_return_water_temp_arr)))
-                return
+                return False
 
     gateway = http.get_device_memory_info(device_id)
     gateway_id = gateway['gateway_id']
@@ -617,8 +629,9 @@ def send_chr_to_ciaowarm(device_id, burn_status, obj, heating_return_water_temp_
         # result = http.send_mqtt(message)
         # if result['message_code'] == 0:
         #     print("需要加大CHR, MQTT发送成功")
+        return False
     # 需调小CHR
-    elif burn_status == 2:
+    elif burn_status == 2 or burn_status == 3:
         # python里面计算浮点类型存在精确性
         chr = Decimal(str(chr)) - Decimal(str(CHR_ADJUST_RANGE))
         chr = float(chr)
@@ -627,6 +640,7 @@ def send_chr_to_ciaowarm(device_id, burn_status, obj, heating_return_water_temp_
         # result = http.send_mqtt(message)
         # if result['message_code'] == 0:
         #     print("需要减小CHR, MQTT发送成功")
+        return False
     # 无需调整CHR，计算实际升温时长
     elif burn_status == 0:
         message = message_package.get_thermostat_message_package(gateway_id, thermostat_id, 'chr', chr)
@@ -634,6 +648,23 @@ def send_chr_to_ciaowarm(device_id, burn_status, obj, heating_return_water_temp_
         # result = http.send_mqtt(message)
         # if result['message_code'] == 0:
         #     print("燃烧工况良好，无需修改CHR, MQTT发送成功")
+        return True
+
+
+# 计算升温时长
+def get_heating_up_time(db, table_name, room_temp_obj):
+    start_time = room_temp_obj['heating_up_start_time']
+    # 查询起始室温
+    start_room_temp = 0
+    data = get_next_data(db, table_name, start_time, "thermostats.room_temp")
+    if data is not None:
+        if 'thermostats' in data:
+            thermostat = data['thermostats'][0]
+            # 房间温度
+            start_room_temp = thermostat['room_temp']
+    # 目标温度高于当前室温3度以上才有计算升温时长的必要
+    if (room_temp_obj['trg_temp'] * 10 - start_room_temp) > 30:
+        print()
 
 
 run()
