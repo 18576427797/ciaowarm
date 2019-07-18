@@ -1,3 +1,5 @@
+# -*- coding: utf-8 -*-
+# coding=utf-8
 # unit test
 import time
 import datetime
@@ -7,8 +9,11 @@ import rest.http_util as http
 import rest.message_package_util as message_package
 from mongodb.pymongo_util import Database
 from decimal import Decimal
+import log
 
 # import random
+
+log = log.log_util.getLog()
 
 # mongodb配置信息
 MONGODB_IP = "47.102.220.27"
@@ -45,7 +50,7 @@ def timestamp_to_date(timestamp):
 
 
 def run():
-    print("起始时间------>" + time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time())))
+    log.info("起始时间------>" + time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time())))
     # 初始化MongoDB对象
     db = Database(MONGODB_IP, MONGODB_PORT, MONGODB_DB, MONGODB_USERNAME, MONGODB_PASSWORD)
     # 设备分析时间，一般一天为一个周期
@@ -79,7 +84,10 @@ def device_analysis(db, device, yesterday_start, yesterday_end):
         # 遍历恒温时段数组
         for room_temp_obj in room_temp_obj_arr:
             one_day_room_temp_obj_arr.append(room_temp_obj)
-
+    # 判断设备整天有无满足恒温燃烧条件的时段
+    if len(one_day_room_temp_obj_arr) == 0:
+        print(table_name + "设备整天都不满足恒温燃烧的条件")
+        return
     # 对恒温时段按标准值从小到大排序
     one_day_room_temp_obj_arr.sort(key=lambda x: x["room_temp_std"])
     for room_temp_obj in one_day_room_temp_obj_arr:
@@ -208,6 +216,8 @@ def get_constant_temp_time(db, table_name, start_time, end_time, trg_temp):
             # 标准差=sqrt(((x1-x)^2 +(x2-x)^2 +......(xn-x)^2)/n)
             room_temp_std = np.std(room_temp_arr, ddof=0)
             # 标准差小于9，我们就认为该时段有分析价值
+            print(table_name + "设备从" + timestamp_to_date(query_start_time) + "到" + timestamp_to_date(
+                query_end_time) + "标准差为：" + str(room_temp_std))
             if room_temp_std < ROOM_TEMP_STANDARD_DEVIATION:
                 # 平均值在目标温度波动范围0.6度以外，则认为没有达到目标温度
                 room_temp_return_obj['start_time'] = query_start_time
@@ -217,6 +227,8 @@ def get_constant_temp_time(db, table_name, start_time, end_time, trg_temp):
                 room_temp_return_obj['trg_temp'] = trg_temp
                 # 计算升温时长的起始时间
                 room_temp_return_obj['heating_up_start_time'] = start_time
+                # 目标温度结束时间
+                room_temp_return_obj['trg_temp_end_time'] = end_time
                 # 将离散数据放入数组中
                 room_temp_return_obj_arr.append(room_temp_return_obj)
                 # 必须重新创建字典，不然会覆盖数组里面之前的字典
@@ -653,7 +665,11 @@ def send_chr_to_ciaowarm(device_id, burn_status, obj, heating_return_water_temp_
 
 # 计算升温时长
 def get_heating_up_time(db, table_name, room_temp_obj):
+    # 升温起始时间
     start_time = room_temp_obj['heating_up_start_time']
+    # 目标温度结束时间
+    query_end_time = room_temp_obj['trg_temp_end_time']
+    trg_temp = room_temp_obj['trg_temp'] * 10
     # 查询起始室温
     start_room_temp = 0
     data = get_next_data(db, table_name, start_time, "thermostats.room_temp")
@@ -663,8 +679,16 @@ def get_heating_up_time(db, table_name, room_temp_obj):
             # 房间温度
             start_room_temp = thermostat['room_temp']
     # 目标温度高于当前室温3度以上才有计算升温时长的必要
-    if (room_temp_obj['trg_temp'] * 10 - start_room_temp) > 30:
-        print()
+    if (trg_temp - start_room_temp) > 30:
+        data = db.find_one(table_name, {"$and": [{"timestamp": {"$gte": start_time, "$lte": query_end_time}}, {
+            "thermostats.room_temp": {"$gte": trg_temp}}]}, {"timestamp": 1, "thermostats.room_temp": 1, "_id": 0})
+        if data is not None:
+            # 升温结束时间
+            end_time = data['timestamp']
+        else:
+            print(table_name + "设备出现异常，没有烧到目标温度")
+    else:
+        print(table_name + "设备出现异常，没有满足条件的升温时段")
 
 
 run()
