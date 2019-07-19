@@ -41,13 +41,14 @@ import logging
 import datetime
 
 
-def getLog(path='.'):
+def getLog(path='.', file_name=''):
     dt = datetime.datetime.now()
     dtstr = dt.strftime('%Y-%m-%d')
     # dtstr=dt.strftime('%Y-%m-%d_%H_%M_%S')
     # 创建一个logger实例
-    logger = logging.getLogger("mylogger")
+    logger = logging.getLogger(file_name)
     logging.basicConfig(filemode='wa')
+    logging.propagate = 0
     hds = logger.handlers
     for h in hds:
         logger.removeHandler(h)
@@ -56,15 +57,16 @@ def getLog(path='.'):
     logName = "%s/%s.test.log" % (path, dtstr)
     fh = logging.FileHandler(logName, encoding='utf-8')
     fh.setLevel(logging.INFO)
-    # 再创建一个handler，用于输出控制台
-    # ch = logging.StreamHandler()
-    # ch.setLevel(logging.INFO)
-    log_format = logging.Formatter("[%(asctime)s-%(filename)s:%(lineno)d]%(message)s", datefmt='%y-%m-%d %H:%M:%S')
+    log_format = logging.Formatter(fmt="[%(asctime)s.%(msecs)03d-%(filename)s:%(lineno)d]  %(message)s",
+                                   datefmt='%Y-%m-%d,%H:%M:%S')
     fh.setFormatter(log_format)  # setFormatter() selects a Formatter object for this handler to use
-    # ch.setFormatter(log_format)
+    # 再创建一个handler，用于输出控制台
+    ch = logging.StreamHandler()
+    ch.setLevel(logging.INFO)
+    ch.setFormatter(log_format)
+    logger.addHandler(ch)
 
     logger.addHandler(fh)
-    # logger.addHandler(ch)
 
     return logger
 
@@ -73,6 +75,6 @@ if __name__ == '__main__':
     log = getLog()
     a = [45, 66, 88, 345, 88, 1234]
     log.info(a)
-    log.info('test1')
+    log.error('test1')
     log.info('test2')
     log.info('test3')
