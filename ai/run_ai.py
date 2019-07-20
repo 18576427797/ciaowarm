@@ -65,7 +65,10 @@ def run():
     # 遍历设备信息
     for device in devices:
         # 设备AI分析
-        device_analysis(db, device, yesterday_start, yesterday_end)
+        try:
+            device_analysis(db, device, yesterday_start, yesterday_end)
+        except Exception as e:
+            log.error("Unexpected Error: {}".format(e))
 
     log.info("结束时间------>" + time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time())))
 
