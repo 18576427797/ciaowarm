@@ -12,6 +12,28 @@ https://docs.djangoproject.com/en/2.2/ref/settings/
 
 import os
 
+# 保持HTTPS连接的时间
+SECURE_HSTS_SECONDS = 3600
+SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+SECURE_HSTS_PRELOAD = True
+
+# 自动重定向到安全连接
+SECURE_SSL_REDIRECT = True
+
+# 避免浏览器自作聪明推断内容类型
+SECURE_CONTENT_TYPE_NOSNIFF = True
+
+# 避免跨站脚本攻击
+SECURE_BROWSER_XSS_FILTER = True
+
+# COOKIE只能通过HTTPS进行传输
+SESSION_COOKIE_SECURE = True
+CSRF_COOKIE_SECURE = True
+
+# 防止点击劫持攻击手段 - 修改HTTP协议响应头
+# 当前网站是不允许使用<iframe>标签进行加载的
+X_FRAME_OPTIONS = 'DENY'
+
 # Build paths inside the project like this: os.path.join(BASE_DIR, ...)
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -22,9 +44,9 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SECRET_KEY = '!%qkk2=k3iz7ps$z9rmgqgeqot+!o7sooxa63hkjhhqey^*bhj'
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = False
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = ['*']
 
 # Application definition
 
