@@ -52,7 +52,7 @@ def timestamp_to_date(timestamp):
 
 
 def run():
-    log.info("起始时间------>" + time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time())))
+    log.logger.info("起始时间------>" + time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time())))
     # 初始化MongoDB对象
     db = Database(MONGODB_IP, MONGODB_PORT, MONGODB_DB, MONGODB_USERNAME, MONGODB_PASSWORD)
     # 设备分析时间，一般一天为一个周期
@@ -68,9 +68,9 @@ def run():
         try:
             device_analysis(db, device, yesterday_start, yesterday_end)
         except Exception as e:
-            log.error("Unexpected Error: {}".format(e))
+            log.logger.error("Unexpected Error: {}".format(e))
 
-    log.info("结束时间------>" + time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time())))
+    log.logger.info("结束时间------>" + time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time())))
 
 
 # 设备AI分析
@@ -91,7 +91,7 @@ def device_analysis(db, device, yesterday_start, yesterday_end):
             one_day_room_temp_obj_arr.append(room_temp_obj)
     # 判断设备整天有无满足恒温燃烧条件的时段
     if len(one_day_room_temp_obj_arr) == 0:
-        log.warning(table_name + "设备整天都不满足恒温燃烧的条件")
+        log.logger.warning(table_name + "设备整天都不满足恒温燃烧的条件")
         return
     # 对恒温时段按标准值从小到大排序
     one_day_room_temp_obj_arr.sort(key=lambda x: x["room_temp_std"])
@@ -106,18 +106,18 @@ def device_analysis(db, device, yesterday_start, yesterday_end):
         # 分析燃烧状况
         burn_status = 0
         if (room_temp_obj['trg_temp'] * 10) > (room_temp_obj['room_temp_mean'] + ROOM_TEMP_AVG_RANGE):
-            log.info(table_name + "从" + timestamp_to_date(room_temp_obj['start_time']) + "到" + timestamp_to_date(
+            log.logger.info(table_name + "从" + timestamp_to_date(room_temp_obj['start_time']) + "到" + timestamp_to_date(
                 room_temp_obj['end_time']) + "的目标温度为：%f" % room_temp_obj['trg_temp'] + "，平均值为：%f" % room_temp_obj[
                          'room_temp_mean'] + "，标准差为:%f" % room_temp_obj['room_temp_std'] + ", 室温没有达到目标温度，需调大CHR")
             burn_status = 1
         elif (room_temp_obj['room_temp_mean'] - ROOM_TEMP_AVG_RANGE) > (room_temp_obj['trg_temp'] * 10):
-            log.info(table_name + "从" + timestamp_to_date(room_temp_obj['start_time']) + "到" + timestamp_to_date(
+            log.logger.info(table_name + "从" + timestamp_to_date(room_temp_obj['start_time']) + "到" + timestamp_to_date(
                 room_temp_obj['end_time']) + "的目标温度为：%f" % room_temp_obj['trg_temp'] + "，平均值为：%f" % room_temp_obj[
                          'room_temp_mean'] + "，标准差为:%f" % room_temp_obj['room_temp_std'] + ", 烧超温，需调小CHR")
             burn_status = 2
         else:
             if room_temp_obj['room_temp_std'] > ROOM_TEMP_STANDARD_OPTIMUM:
-                log.info(table_name + "从" + timestamp_to_date(room_temp_obj['start_time']) + "到" + timestamp_to_date(
+                log.logger.info(table_name + "从" + timestamp_to_date(room_temp_obj['start_time']) + "到" + timestamp_to_date(
                     room_temp_obj['end_time']) + "的目标温度为：%f" % room_temp_obj['trg_temp'] + "，平均值为：%f" % room_temp_obj[
                              'room_temp_mean'] + "，标准差为:%f" % room_temp_obj['room_temp_std'] + "，需调小CHR")
                 burn_status = 3
@@ -221,7 +221,7 @@ def get_constant_temp_time(db, table_name, start_time, end_time, trg_temp):
             # 标准差=sqrt(((x1-x)^2 +(x2-x)^2 +......(xn-x)^2)/n)
             room_temp_std = np.std(room_temp_arr, ddof=0)
             # 标准差小于9，我们就认为该时段有分析价值
-            # log.info(table_name + "设备从" + timestamp_to_date(query_start_time) + "到" + timestamp_to_date(
+            # log.logger.info(table_name + "设备从" + timestamp_to_date(query_start_time) + "到" + timestamp_to_date(
             #     query_end_time) + "标准差为：" + str(room_temp_std))
             if room_temp_std < ROOM_TEMP_STANDARD_DEVIATION:
                 # 平均值在目标温度波动范围0.6度以外，则认为没有达到目标温度
@@ -271,7 +271,7 @@ def device_online_status(db, table_name, query_start_time, query_end_time):
                 if online_status['online'] is not True:
                     # 前一个点为False时，进行比较
                     if (item['timestamp'] - online_status['online_time']) > ABNORMAL_BURN_STATUS_TIME:
-                        log.warning(table_name + "设备从" + timestamp_to_date(
+                        log.logger.warning(table_name + "设备从" + timestamp_to_date(
                             query_start_time) + "到" + timestamp_to_date(
                             query_end_time) + "网关离线时长超过3分钟")
                         return False
@@ -435,7 +435,7 @@ def check_burn_status(db, table_name, room_temp_obj, obj):
                 if 'work_mode' in thermostat:
                     if 'thermostat_work_mode' in obj:
                         if obj['thermostat_work_mode'] != thermostat['work_mode']:
-                            log.warning(table_name + "设备" + timestamp_to_date(
+                            log.logger.warning(table_name + "设备" + timestamp_to_date(
                                 room_temp_obj['start_time']) + "到" + timestamp_to_date(
                                 room_temp_obj['end_time']) + "温控器工作模式有变动")
                             flag = False
@@ -455,7 +455,7 @@ def check_burn_status(db, table_name, room_temp_obj, obj):
                     if obj['boiler_online'] is not True:
                         # 前一个点为False时，进行比较
                         if (item['timestamp'] - obj['boiler_online_time']) > ABNORMAL_BURN_STATUS_TIME:
-                            log.warning(table_name + "设备" + timestamp_to_date(
+                            log.logger.warning(table_name + "设备" + timestamp_to_date(
                                 room_temp_obj['start_time']) + "到" + timestamp_to_date(
                                 room_temp_obj['end_time']) + "壁挂炉离线时长超过3分钟")
                             flag = False
@@ -481,7 +481,7 @@ def check_burn_status(db, table_name, room_temp_obj, obj):
             # 冬夏模式，必须为冬季True
             if 'season_ctrl' in boiler:
                 if boiler['season_ctrl'] is False:
-                    log.warning(table_name + "设备" + timestamp_to_date(
+                    log.logger.warning(table_name + "设备" + timestamp_to_date(
                         room_temp_obj['start_time']) + "到" + timestamp_to_date(
                         room_temp_obj['end_time']) + "壁挂炉冬夏模式出现False")
                     flag = False
@@ -496,7 +496,7 @@ def check_burn_status(db, table_name, room_temp_obj, obj):
                     if obj['boiler_work_mode'] != 2:
                         # 前一个点为非2时，进行判断
                         if (item['timestamp'] - obj['boiler_work_mode_time']) > ABNORMAL_BURN_STATUS_TIME:
-                            log.warning(table_name + "设备" + timestamp_to_date(
+                            log.logger.warning(table_name + "设备" + timestamp_to_date(
                                 room_temp_obj['start_time']) + "到" + timestamp_to_date(
                                 room_temp_obj['end_time']) + "壁挂炉工作模式为非采暖模式时长超过3分钟")
                             flag = False
@@ -520,7 +520,7 @@ def check_burn_status(db, table_name, room_temp_obj, obj):
                     if obj['fault_code'] != 0:
                         # 前一个点为非0时，进行比较
                         if (item['timestamp'] - obj['fault_code_time']) > ABNORMAL_BURN_STATUS_TIME:
-                            log.warning(table_name + "设备" + timestamp_to_date(
+                            log.logger.warning(table_name + "设备" + timestamp_to_date(
                                 room_temp_obj['start_time']) + "到" + timestamp_to_date(
                                 room_temp_obj['end_time']) + "壁挂炉故障码为非0状态时长超过3分钟")
                             flag = False
@@ -541,7 +541,7 @@ def check_burn_status(db, table_name, room_temp_obj, obj):
             if 'radiator_type' in boiler:
                 if 'radiator_type' in obj:
                     if obj['radiator_type'] != boiler['radiator_type']:
-                        log.warning(table_name + "设备" + timestamp_to_date(
+                        log.logger.warning(table_name + "设备" + timestamp_to_date(
                             room_temp_obj['start_time']) + "到" + timestamp_to_date(
                             room_temp_obj['end_time']) + "壁挂炉散热器类型有变动")
                         flag = False
@@ -575,7 +575,7 @@ def check_burn_status(db, table_name, room_temp_obj, obj):
                 # 必须为AI控制True
                 if 'auto_ctrl' in receiver:
                     if receiver['auto_ctrl'] is False:
-                        log.warning(table_name + "设备" + timestamp_to_date(
+                        log.logger.warning(table_name + "设备" + timestamp_to_date(
                             room_temp_obj['start_time']) + "到" + timestamp_to_date(
                             room_temp_obj['end_time']) + "壁挂炉AI控制出现False")
                         flag = False
@@ -590,7 +590,7 @@ def check_burn_status(db, table_name, room_temp_obj, obj):
                         if obj['receiver_online'] is not True:
                             # 前一个点为False时，进行比较
                             if (item['timestamp'] - obj['receiver_online_time']) > ABNORMAL_BURN_STATUS_TIME:
-                                log.warning(table_name + "设备" + timestamp_to_date(
+                                log.logger.warning(table_name + "设备" + timestamp_to_date(
                                     room_temp_obj['start_time']) + "到" + timestamp_to_date(
                                     room_temp_obj['end_time']) + "接收器离线时长超过3分钟")
                                 flag = False
@@ -621,12 +621,12 @@ def send_chr_to_ciaowarm(device_id, burn_status, obj, heating_return_water_temp_
         if len(heating_return_water_temp_arr) > 0:
             heating_return_water_temp_mean = np.mean(heating_return_water_temp_arr)
             if obj['radiator_type'] == 1 and heating_return_water_temp_mean > 49:
-                log.warning(str(device_id) + "设备采暖回水温度已达到上限，采用地暖类型，采暖回水温度平均值为：" +
+                log.logger.warning(str(device_id) + "设备采暖回水温度已达到上限，采用地暖类型，采暖回水温度平均值为：" +
                             str(heating_return_water_temp_mean) + "，采暖回水温度数量为：" + str(
                     len(heating_return_water_temp_arr)))
                 return False
             elif obj['radiator_type'] == 2 and heating_return_water_temp_mean > 69:
-                log.warning(str(device_id) + "设备采暖回水温度已达到上限，采用暖气片类型，采暖回水温度平均值为：" +
+                log.logger.warning(str(device_id) + "设备采暖回水温度已达到上限，采用暖气片类型，采暖回水温度平均值为：" +
                             str(heating_return_water_temp_mean) + "，采暖回水温度数量为：" + str(
                     len(heating_return_water_temp_arr)))
                 return False
@@ -642,10 +642,10 @@ def send_chr_to_ciaowarm(device_id, burn_status, obj, heating_return_water_temp_
         chr = Decimal(str(chr)) + Decimal(str(CHR_ADJUST_RANGE))
         chr = float(chr)
         message = message_package.get_thermostat_message_package(gateway_id, thermostat_id, 'chr', chr)
-        log.info(message)
+        log.logger.info(message)
         # result = http.send_mqtt(message)
         # if result['message_code'] == 0:
-        #     log.info("需要加大CHR, MQTT发送成功")
+        #     log.logger.info("需要加大CHR, MQTT发送成功")
         return False
     # 需调小CHR
     elif burn_status == 2 or burn_status == 3:
@@ -653,24 +653,24 @@ def send_chr_to_ciaowarm(device_id, burn_status, obj, heating_return_water_temp_
         chr = Decimal(str(chr)) - Decimal(str(CHR_ADJUST_RANGE))
         chr = float(chr)
         message = message_package.get_thermostat_message_package(gateway_id, thermostat_id, 'chr', chr)
-        log.info(message)
+        log.logger.info(message)
         # result = http.send_mqtt(message)
         # if result['message_code'] == 0:
-        #     log.info("需要减小CHR, MQTT发送成功")
+        #     log.logger.info("需要减小CHR, MQTT发送成功")
         return False
     # 无需调整CHR，计算实际升温时长
     elif burn_status == 0:
         message = message_package.get_thermostat_message_package(gateway_id, thermostat_id, 'chr', chr)
-        log.info(message)
+        log.logger.info(message)
         # result = http.send_mqtt(message)
         # if result['message_code'] == 0:
-        #     log.info("燃烧工况良好，无需修改CHR, MQTT发送成功")
+        #     log.logger.info("燃烧工况良好，无需修改CHR, MQTT发送成功")
         return True
 
 
 # 计算升温时长
 def get_heating_up_time(db, table_name, room_temp_obj):
-    # 升温起始时间
+    # 升温起始时间整天都不满足恒温燃烧的条件
     start_time = room_temp_obj['heating_up_start_time']
     # 目标温度结束时间
     query_end_time = room_temp_obj['trg_temp_end_time']
@@ -691,9 +691,9 @@ def get_heating_up_time(db, table_name, room_temp_obj):
             # 升温结束时间
             end_time = data['timestamp']
         else:
-            log.error(table_name + "设备出现异常，没有烧到目标温度")
+            log.logger.error(table_name + "设备出现异常，没有烧到目标温度")
     else:
-        log.error(table_name + "设备出现异常，没有满足条件的升温时段")
+        log.logger.error(table_name + "设备出现异常，没有满足条件的升温时段")
 
 
 run()
@@ -705,4 +705,4 @@ run()
 # get_constant_temp_time(db, "g1060", 1562918400000, 1562929200000, 24)
 # get_constant_temp_time(db, "g1060", 1562860800000, 1562947199000, 24)
 # init_obj(db, 'g1066', room_temp_obj, obj)
-# log.info(obj)
+# log.logger.info(obj)

@@ -36,35 +36,42 @@ class Logger(object):
             # 给logger添加handler
             self.logger.addHandler(fh)
 
-    def debug(self, message):
-        self.fontColor('\033[0;34m%s\033[0m')
-        self.logger.debug(message)
+            # 再创建一个handler，用于输出控制台
+            ch = logging.StreamHandler()
+            ch.setLevel(logging.NOTSET)
+            ch.setFormatter(formatter)
+            self.logger.addHandler(ch)
 
-    def info(self, message):
-        self.fontColor('\033[0;37m%s\033[0m')
-        self.logger.info(message)
+    # def debug(self, message):
+    #     self.fontColor('\033[0;34m%s\033[0m')
+    #     self.logger.debug(message)
+    #
+    # def info(self, message):
+    #     self.fontColor('\033[0;37m%s\033[0m')
+    #     self.logger.info(message)
+    #
+    # def warning(self, message):
+    #     self.fontColor('\033[0;32m%s\033[0m')
+    #     self.logger.warning(message)
+    #
+    # def error(self, message):
+    #     self.fontColor('\033[0;31m%s\033[0m')
+    #     self.logger.error(message)
+    #
+    # def critical(self, message):
+    #     self.fontColor('\033[0;35m%s\033[0m')
+    #     self.logger.critical(message)
+    #
+    # def fontColor(self, color):
+    #     # 不同的日志输出不同的颜色
+    #     formatter = logging.Formatter(color % '[%(asctime)s] - [%(levelname)s] - %(message)s')
+    #     self.ch.setFormatter(formatter)
+    #     self.logger.addHandler(self.ch)
 
-    def warning(self, message):
-        self.fontColor('\033[0;32m%s\033[0m')
-        self.logger.warning(message)
 
-    def error(self, message):
-        self.fontColor('\033[0;31m%s\033[0m')
-        self.logger.error(message)
-
-    def critical(self, message):
-        self.fontColor('\033[0;35m%s\033[0m')
-        self.logger.critical(message)
-
-    def fontColor(self, color):
-        # 不同的日志输出不同的颜色
-        formatter = logging.Formatter(color % '[%(asctime)s] - [%(levelname)s] - %(message)s')
-        self.ch.setFormatter(formatter)
-        self.logger.addHandler(self.ch)
-
-# if __name__ == "__main__":
-# logger = logger()
-# logger.info("info")
-# logger.debug("debug")
-# logger.warning("warning")
-# logger.error("error")
+if __name__ == "__main__":
+    logger = Logger()
+    logger.logger.info("info")
+    logger.logger.debug("debug")
+    logger.logger.warning("warning")
+    logger.logger.error("error")
