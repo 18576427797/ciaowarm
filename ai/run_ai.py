@@ -108,18 +108,20 @@ def device_analysis(db, device, yesterday_start, yesterday_end):
         if (room_temp_obj['trg_temp'] * 10) > (room_temp_obj['room_temp_mean'] + ROOM_TEMP_AVG_RANGE):
             log.logger.info(table_name + "从" + timestamp_to_date(room_temp_obj['start_time']) + "到" + timestamp_to_date(
                 room_temp_obj['end_time']) + "的目标温度为：%f" % room_temp_obj['trg_temp'] + "，平均值为：%f" % room_temp_obj[
-                         'room_temp_mean'] + "，标准差为:%f" % room_temp_obj['room_temp_std'] + ", 室温没有达到目标温度，需调大CHR")
+                                'room_temp_mean'] + "，标准差为:%f" % room_temp_obj['room_temp_std'] + ", 室温没有达到目标温度，需调大CHR")
             burn_status = 1
         elif (room_temp_obj['room_temp_mean'] - ROOM_TEMP_AVG_RANGE) > (room_temp_obj['trg_temp'] * 10):
             log.logger.info(table_name + "从" + timestamp_to_date(room_temp_obj['start_time']) + "到" + timestamp_to_date(
                 room_temp_obj['end_time']) + "的目标温度为：%f" % room_temp_obj['trg_temp'] + "，平均值为：%f" % room_temp_obj[
-                         'room_temp_mean'] + "，标准差为:%f" % room_temp_obj['room_temp_std'] + ", 烧超温，需调小CHR")
+                                'room_temp_mean'] + "，标准差为:%f" % room_temp_obj['room_temp_std'] + ", 烧超温，需调小CHR")
             burn_status = 2
         else:
             if room_temp_obj['room_temp_std'] > ROOM_TEMP_STANDARD_OPTIMUM:
-                log.logger.info(table_name + "从" + timestamp_to_date(room_temp_obj['start_time']) + "到" + timestamp_to_date(
-                    room_temp_obj['end_time']) + "的目标温度为：%f" % room_temp_obj['trg_temp'] + "，平均值为：%f" % room_temp_obj[
-                             'room_temp_mean'] + "，标准差为:%f" % room_temp_obj['room_temp_std'] + "，需调小CHR")
+                log.logger.info(
+                    table_name + "从" + timestamp_to_date(room_temp_obj['start_time']) + "到" + timestamp_to_date(
+                        room_temp_obj['end_time']) + "的目标温度为：%f" % room_temp_obj['trg_temp'] + "，平均值为：%f" %
+                    room_temp_obj[
+                        'room_temp_mean'] + "，标准差为:%f" % room_temp_obj['room_temp_std'] + "，需调小CHR")
                 burn_status = 3
 
         # 向小沃精灵发送chr值
@@ -622,12 +624,12 @@ def send_chr_to_ciaowarm(device_id, burn_status, obj, heating_return_water_temp_
             heating_return_water_temp_mean = np.mean(heating_return_water_temp_arr)
             if obj['radiator_type'] == 1 and heating_return_water_temp_mean > 49:
                 log.logger.warning(str(device_id) + "设备采暖回水温度已达到上限，采用地暖类型，采暖回水温度平均值为：" +
-                            str(heating_return_water_temp_mean) + "，采暖回水温度数量为：" + str(
+                                   str(heating_return_water_temp_mean) + "，采暖回水温度数量为：" + str(
                     len(heating_return_water_temp_arr)))
                 return False
             elif obj['radiator_type'] == 2 and heating_return_water_temp_mean > 69:
                 log.logger.warning(str(device_id) + "设备采暖回水温度已达到上限，采用暖气片类型，采暖回水温度平均值为：" +
-                            str(heating_return_water_temp_mean) + "，采暖回水温度数量为：" + str(
+                                   str(heating_return_water_temp_mean) + "，采暖回水温度数量为：" + str(
                     len(heating_return_water_temp_arr)))
                 return False
 
