@@ -3,6 +3,7 @@
 # unit test
 import time
 import datetime
+
 import math
 import numpy as np
 import rest.http_util as http
@@ -14,8 +15,6 @@ from log.logger import Logger
 # import random
 
 log = Logger(path="../log", filename="run_ai")
-# 会重复打印日志
-log.propagate = 0
 
 # mongodb配置信息
 MONGODB_IP = "47.102.220.27"
@@ -43,6 +42,13 @@ CHR_ADJUST_RANGE = 0.1
 # 某些参数在超过三分钟的时间处于非正常燃烧状态，我们就认为这段恒温时段没有分析价值
 ABNORMAL_BURN_STATUS_TIME = 180000
 
+# 空气密度:ρ空气=1.29kg/m^3
+ρ空气 = 1.29
+# 空气比热:c空气=1000J/(kgK)
+c空气 = 1000
+# 房屋高度暂定为3米
+HOUSE_HEIGHT = 3
+
 
 # 根据时间戳获取日期
 def timestamp_to_date(timestamp):
@@ -53,6 +59,7 @@ def timestamp_to_date(timestamp):
 
 def run():
     log.logger.info("起始时间------>" + time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time())))
+
     # 初始化MongoDB对象
     db = Database(MONGODB_IP, MONGODB_PORT, MONGODB_DB, MONGODB_USERNAME, MONGODB_PASSWORD)
     # 设备分析时间，一般一天为一个周期
@@ -120,14 +127,15 @@ def device_analysis(db, device, yesterday_start, yesterday_end):
                 log.logger.info(
                     table_name + "从" + timestamp_to_date(room_temp_obj['start_time']) + "到" + timestamp_to_date(
                         room_temp_obj['end_time']) + "的目标温度为：%f" % room_temp_obj['trg_temp'] + "，平均值为：%f" %
-                    room_temp_obj[
-                        'room_temp_mean'] + "，标准差为:%f" % room_temp_obj['room_temp_std'] + "，需调小CHR")
+                    room_temp_obj['room_temp_mean'] + "，标准差为:%f" % room_temp_obj['room_temp_std'] + "，需调小CHR")
                 burn_status = 3
 
         # 向小沃精灵发送chr值
         if send_chr_to_ciaowarm(device_id, burn_status, obj, heating_return_water_temp_arr) is True:
-            # 计算升温时长
-            get_heating_up_time(db, table_name, room_temp_obj)
+            # 计算实际升温时长
+            start_time, end_time = get_heating_up_time(db, table_name, room_temp_obj)
+            # 计算热惰性（实际升温时长/理想升温时长），并发送给小沃精灵
+            send_thermal_inertia_to_ciaowarm(db, table_name, device_id, start_time, end_time)
         return
 
 
@@ -692,10 +700,33 @@ def get_heating_up_time(db, table_name, room_temp_obj):
         if data is not None:
             # 升温结束时间
             end_time = data['timestamp']
+            return start_time, end_time
         else:
             log.logger.error(table_name + "设备出现异常，没有烧到目标温度")
     else:
         log.logger.error(table_name + "设备出现异常，没有满足条件的升温时段")
+
+
+# 计算热惰性并发送给小沃精灵
+def send_thermal_inertia_to_ciaowarm(db, table_name, device_id, start_time, end_time):
+    result = http.get_home_info(device_id, end_time)
+    if result['message_code'] == 0:
+        message_info = result['message_info']
+        # k1 = c空气ρ空气v房间(空气密度:ρ空气=1.29kg/m^3, 空气比热:c空气=1000J/(kgK))
+        k1 = ρ空气 * c空气 * message_info['home_area'] * HOUSE_HEIGHT
+        # k2 = P炉/(T室内-T室外)
+
+        # k3 = CBS×CS×S管×v水×ρ水×c水
+
+        # d = (T目标-T室外)×KT×SC×S管×v水×ρ水×c水
+
+        # t理想 =〖log〗((k1/(k1+k2+k3))) ((T目标-(k2×T室外+k3×T目标+d)/(k2+k3))/(T初始-(k2×T室外+k3×T目标+d)/(k2+k3)))
+
+        # k热惰性 = t实际升温时长/t理想升温时长
+
+        t_actual = end_time - start_time
+    else:
+        log.logger.error(table_name + "设备获取房屋信息报错")
 
 
 run()

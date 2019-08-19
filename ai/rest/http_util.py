@@ -45,6 +45,20 @@ def send_mqtt(device_data):
         return result
 
 
+def get_home_info(device_id, query_weather_time):
+    http_url = request_url + "/python/v1/gateway/homeInfo"
+    data = {
+        'device_id': device_id,
+        'query_weather_time': query_weather_time
+    }
+    token = get_sha1_token()
+    header = {'content-type': 'application/x-www-form-urlencoded', "token": token}
+    r = requests.get(http_url, params=data, headers=header)
+    if r.status_code == 200:
+        result = json.loads(r.text)
+        return result
+
+
 def get_sha1_token():
     str = "CIAOWARM%" + time.strftime("%Y%m%d") + "_LIUDUO"
     # 第一次加密
@@ -56,7 +70,6 @@ def get_sha1_token():
     d.update(c.encode(encoding='utf-8'))
     token = d.hexdigest()
     return token
-
 
 # str = "CIAOWARM%" + time.strftime("%Y%m%d") + "_LIUDUO"
 # # 第一次加密

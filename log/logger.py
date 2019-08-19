@@ -11,7 +11,7 @@ class Logger(object):
     """
 
     # 在这里定义StreamHandler，可以实现单例， 所有的logger()共用一个StreamHandler
-    ch = logging.StreamHandler()
+    # ch = logging.StreamHandler()
 
     def __init__(self, path='.', filename='logger'):
         self.logger = logging.getLogger(filename)
