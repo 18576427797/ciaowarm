@@ -48,6 +48,11 @@ ABNORMAL_BURN_STATUS_TIME = 180000
 c空气 = 1000
 # 房屋高度暂定为3米
 HOUSE_HEIGHT = 3
+S管 = 0
+v水 = 0
+ρ水 = 0
+c水 = 0
+KT = 0
 
 
 # 根据时间戳获取日期
@@ -73,7 +78,7 @@ def run():
     for device in devices:
         # 设备AI分析
         try:
-            device_analysis(db, device, yesterday_start, yesterday_end)
+            device_analysis(db, str(device['id']), yesterday_start, yesterday_end)
         except Exception as e:
             log.logger.error("Unexpected Error: {}".format(e))
 
@@ -81,8 +86,7 @@ def run():
 
 
 # 设备AI分析
-def device_analysis(db, device, yesterday_start, yesterday_end):
-    device_id = str(device['id'])
+def device_analysis(db, device_id, yesterday_start, yesterday_end):
     table_name = "g" + device_id
 
     # 获取目标温度5小时恒定数组
@@ -131,11 +135,12 @@ def device_analysis(db, device, yesterday_start, yesterday_end):
                 burn_status = 3
 
         # 向小沃精灵发送chr值
-        if send_chr_to_ciaowarm(device_id, burn_status, obj, heating_return_water_temp_arr) is True:
+        device = http.get_device_memory_info(device_id)
+        if send_chr_to_ciaowarm(device, device_id, burn_status, obj, heating_return_water_temp_arr) is True:
             # 计算实际升温时长
-            start_time, end_time = get_heating_up_time(db, table_name, room_temp_obj)
+            heating_up_obj = get_heating_up_time(db, table_name, room_temp_obj)
             # 计算热惰性（实际升温时长/理想升温时长），并发送给小沃精灵
-            send_thermal_inertia_to_ciaowarm(db, table_name, device_id, start_time, end_time)
+            send_thermal_inertia_to_ciaowarm(device, db, table_name, device_id, heating_up_obj)
         return
 
 
@@ -622,7 +627,7 @@ def check_burn_status(db, table_name, room_temp_obj, obj):
 
 
 # 向小沃精灵发送chr值
-def send_chr_to_ciaowarm(device_id, burn_status, obj, heating_return_water_temp_arr):
+def send_chr_to_ciaowarm(device, device_id, burn_status, obj, heating_return_water_temp_arr):
     # 判断壁挂炉是否是最大功率在燃烧，如果采暖回水温度已达到上限就没有调大CHR的必要
     if burn_status == 1:
         # radiator_type(1:地暖, 2:暖气片)
@@ -641,9 +646,8 @@ def send_chr_to_ciaowarm(device_id, burn_status, obj, heating_return_water_temp_
                     len(heating_return_water_temp_arr)))
                 return False
 
-    gateway = http.get_device_memory_info(device_id)
-    gateway_id = gateway['gateway_id']
-    thermostat = gateway['thermostats'][0]
+    gateway_id = device['gateway_id']
+    thermostat = device['thermostats'][0]
     thermostat_id = thermostat['thermostat_id']
     chr = thermostat['chr']
     # 需调大CHR
@@ -680,8 +684,11 @@ def send_chr_to_ciaowarm(device_id, burn_status, obj, heating_return_water_temp_
 
 # 计算升温时长
 def get_heating_up_time(db, table_name, room_temp_obj):
-    # 升温起始时间整天都不满足恒温燃烧的条件
+    # 存放升温时间、当前室温等参数
+    obj = {}
+    # 升温起始时间
     start_time = room_temp_obj['heating_up_start_time']
+    obj['start_time'] = start_time
     # 目标温度结束时间
     query_end_time = room_temp_obj['trg_temp_end_time']
     trg_temp = room_temp_obj['trg_temp'] * 10
@@ -691,16 +698,21 @@ def get_heating_up_time(db, table_name, room_temp_obj):
     if data is not None:
         if 'thermostats' in data:
             thermostat = data['thermostats'][0]
-            # 房间温度
+            # 房间起始温度
             start_room_temp = thermostat['room_temp']
+            obj['start_room_temp'] = start_room_temp
     # 目标温度高于当前室温3度以上才有计算升温时长的必要
     if (trg_temp - start_room_temp) > 30:
         data = db.find_one(table_name, {"$and": [{"timestamp": {"$gte": start_time, "$lte": query_end_time}}, {
             "thermostats.room_temp": {"$gte": trg_temp}}]}, {"timestamp": 1, "thermostats.room_temp": 1, "_id": 0})
         if data is not None:
             # 升温结束时间
-            end_time = data['timestamp']
-            return start_time, end_time
+            obj['end_time'] = data['timestamp']
+            if 'thermostats' in data:
+                thermostat = data['thermostats'][0]
+                # 当前室温
+                obj['end_room_temp'] = thermostat['room_temp']
+            return obj
         else:
             log.logger.error(table_name + "设备出现异常，没有烧到目标温度")
     else:
@@ -708,23 +720,65 @@ def get_heating_up_time(db, table_name, room_temp_obj):
 
 
 # 计算热惰性并发送给小沃精灵
-def send_thermal_inertia_to_ciaowarm(db, table_name, device_id, start_time, end_time):
-    result = http.get_home_info(device_id, end_time)
+def send_thermal_inertia_to_ciaowarm(device, db, table_name, device_id, heating_up_obj):
+    result = http.get_home_info(device_id, heating_up_obj['end_time'])
     if result['message_code'] == 0:
         message_info = result['message_info']
+        # 目标温度
+        indoor_temp = heating_up_obj['end_room_temp']
+        # 室外温度
+        outdoor_temp = message_info['outdoor_temp']
         # k1 = c空气ρ空气v房间(空气密度:ρ空气=1.29kg/m^3, 空气比热:c空气=1000J/(kgK))
         k1 = ρ空气 * c空气 * message_info['home_area'] * HOUSE_HEIGHT
         # k2 = P炉/(T室内-T室外)
-
+        data = get_next_data(db, table_name, heating_up_obj['end_time'], "boilers.power_output_percent")
+        if data is not None:
+            if 'boilers' in data:
+                boiler = data['boilers'][0]
+                # 功率输出百分比
+                power_output_percent = boiler['power_output_percent']
+        k2 = (24 * power_output_percent) / (indoor_temp - outdoor_temp)
         # k3 = CBS×CS×S管×v水×ρ水×c水
-
+        # CBS = HS/100×HST×HBT×CHR
+        # HS：房屋面积
+        # HST：采暖系统类型（地暖：1，暖气片：1.2）
+        thermostat = device['thermostats'][0]
+        boiler = device['boilers'][0]
+        if boiler['radiator_type'] == 1:
+            HST = 1
+        else:
+            HST = 1.2
+        # HBT：房屋建筑类型（公寓：1，商用：1.1，别墅：1.2）
+        if message_info['home_type'] == 1:
+            HBT = 1.2
+        elif message_info['home_type'] == 2:
+            HBT = 1.1
+        else:
+            HBT = 1
+        CBS = message_info['home_area'] / 100 * HST * HBT * thermostat['chr']
+        k3 = CBS * thermostat['cs'] * S管 * v水 * ρ水 * c水
         # d = (T目标-T室外)×KT×SC×S管×v水×ρ水×c水
-
+        if thermostat['work_mode'] == 2:
+            SC = 0.93
+        else:
+            SC = 1
+        d = (indoor_temp - outdoor_temp) * KT * SC * S管 * v水 * ρ水 * c水
         # t理想 =〖log〗((k1/(k1+k2+k3))) ((T目标-(k2×T室外+k3×T目标+d)/(k2+k3))/(T初始-(k2×T室外+k3×T目标+d)/(k2+k3)))
-
+        a = k1 / (k1 + k2 + k3)
+        b = indoor_temp - (k2 * outdoor_temp + k3 * indoor_temp + d) / (k2 + k3)
+        c = heating_up_obj['start_room_temp'] - (k2 * outdoor_temp + k3 * outdoor_temp + d) / (k2 + k3)
+        n = b / c
+        t_ideal = math.log(n, a)
+        t_actual = heating_up_obj['end_time'] - heating_up_obj['start_time']
         # k热惰性 = t实际升温时长/t理想升温时长
-
-        t_actual = end_time - start_time
+        k = t_actual / t_ideal
+        message = message_package.get_gateway_message_package(device_id, 'k', k)
+        log.logger.info(message)
+        result = http.send_mqtt(message)
+        if result['message_code'] == 0:
+            log.logger.info("热惰性发送成功")
+        else:
+            log.logger.error("热惰性发送失败")
     else:
         log.logger.error(table_name + "设备获取房屋信息报错")
 
