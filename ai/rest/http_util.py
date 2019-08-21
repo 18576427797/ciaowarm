@@ -45,6 +45,20 @@ def send_mqtt(device_data):
         return result
 
 
+def send_water_pressure_warn(device_id, boiler_id):
+    http_url = request_url + "/python/v1/boiler/waterPressureWarn"
+    data = {
+        'device_id': device_id,
+        'boiler_id': boiler_id
+    }
+    token = get_sha1_token()
+    header = {'content-type': 'application/x-www-form-urlencoded', "token": token}
+    r = requests.put(http_url, params=data, headers=header)
+    if r.status_code == 200:
+        result = json.loads(r.text)
+        return result
+
+
 def get_home_info(device_id, query_weather_time):
     http_url = request_url + "/python/v1/gateway/homeInfo"
     data = {

@@ -49,17 +49,27 @@ def run():
     for device in devices:
         # 设备AI分析
         try:
-            data = db.find("g" + str(device['id']),
+            device_id = device['id']
+            table_name = "g" + str(device_id)
+            data = db.find(table_name,
                            {"$and": [{"timestamp": {'$gte': query_start_time, '$lt': query_end_time}},
                                      {"boilers.water_pressure_value": {"$exists": "true"}}]},
-                           {"boilers.water_pressure_value": '1', "timestamp": '1'})
+                           {"boilers.water_pressure_value": '1', "boilers.boiler_id": '1'})
             water_pressure_value_arr = []
+            boiler_id = 0
             for item in data:
                 if 'boilers' in item:
                     boiler = item['boilers'][0]
                     if 'water_pressure_value' in boiler:
                         water_pressure_value_arr.append(boiler['water_pressure_value'])
-
+                        boiler_id = boiler['boiler_id']
+            if len(water_pressure_value_arr):
+                max_water_pressure_value = max(water_pressure_value_arr)
+                min_water_pressure_value = min(water_pressure_value_arr)
+                if (max_water_pressure_value - min_water_pressure_value) > 4:
+                    result = http.send_water_pressure_warn(device_id, boiler_id)
+                    if result is not None and result['message_code'] == 0:
+                        log.logger.info(result['message_info'])
         except Exception as e:
             log.logger.error("Unexpected Error: {}".format(e))
 
