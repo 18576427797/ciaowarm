@@ -69,7 +69,7 @@ def run():
                 if (max_water_pressure_value - min_water_pressure_value) > 4:
                     result = http.send_water_pressure_warn(device_id, boiler_id)
                     if result is not None and result['message_code'] == 0:
-                        log.logger.info(result['message_info'])
+                        log.logger.info(table_name + "设备" + result['message_info'])
         except Exception as e:
             log.logger.error("Unexpected Error: {}".format(e))
 
